@@ -55,7 +55,7 @@ module GoodJob
         # @param base_scope [Class] the base GoodJob::Job scope to build on
         # @return [Proc] a proc that takes a label and returns a scoped query
         def query_scope(base_scope = GoodJob::Job)
-          lambda { |label| base_scope.where("? = ANY(labels)", label) }
+          ->(label) { base_scope.where("? = ANY(labels)", label) }
         end
 
         # Indicates whether this is a legacy rule converted from good_job_control_concurrency_with
@@ -99,7 +99,7 @@ module GoodJob
       # Allows legacy concurrency_key system to use the unified rule-based checking infrastructure
       class LegacyRule < Rule
         def initialize(config)
-          super(config)
+          super
           @key_callable = @config[:key]
         end
 
@@ -121,7 +121,7 @@ module GoodJob
         # @param base_scope [Class] the base GoodJob::Job scope to build on
         # @return [Proc] a proc that takes a concurrency_key and returns a scoped query
         def query_scope(base_scope = GoodJob::Job)
-          lambda { |key| base_scope.where(concurrency_key: key) }
+          ->(key) { base_scope.where(concurrency_key: key) }
         end
 
         # Indicates this is a legacy rule

@@ -61,18 +61,14 @@ module GoodJob
           # Check all concurrency constraints (rules and legacy converted to rules)
           unless job.class.good_job_concurrency_rules.empty?
             job.good_job_concurrency_labels ||= job._good_job_concurrency_labels
-            
+
             # For legacy rules, also set the concurrency_key so it gets persisted to the database
             # (needed for backward compatibility and database queries)
             legacy_rules = job.class.good_job_concurrency_rules.select(&:legacy?)
-            if legacy_rules.any?
-              job.good_job_concurrency_key ||= job._good_job_concurrency_key
-            end
-            
+            job.good_job_concurrency_key ||= job._good_job_concurrency_key if legacy_rules.any?
+
             # Also set good_job_labels so Job model can persist labels to database (if Labels extension is included)
-            if job.respond_to?(:good_job_labels=)
-              job.good_job_labels = (job.good_job_labels || []) + job.good_job_concurrency_labels
-            end
+            job.good_job_labels = (job.good_job_labels || []) + job.good_job_concurrency_labels if job.respond_to?(:good_job_labels=)
 
             exceeded = nil
             job.class.good_job_concurrency_rules.each do |rule|
