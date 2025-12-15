@@ -50,6 +50,20 @@ module GoodJob
           get_throttle(job, :perform_throttle)
         end
 
+        # Returns a proc that applies the appropriate query scope for this rule type
+        # For standard rules, queries by labels array; for legacy rules, queries by concurrency_key column
+        # @param base_scope [Class] the base GoodJob::Job scope to build on
+        # @return [Proc] a proc that takes a label and returns a scoped query
+        def query_scope(base_scope = GoodJob::Job)
+          lambda { |label| base_scope.where("? = ANY(labels)", label) }
+        end
+
+        # Indicates whether this is a legacy rule converted from good_job_control_concurrency_with
+        # @return [Boolean] true if legacy, false otherwise
+        def legacy?
+          false
+        end
+
         private
 
         def get_limit(job, key)
@@ -78,6 +92,50 @@ module GoodJob
           return if has_limits
 
           raise ArgumentError, "Concurrency rule requires at least one limit or throttle option"
+        end
+      end
+
+      # Legacy rule adapter: wraps good_job_control_concurrency_with config as a Rule
+      # Allows legacy concurrency_key system to use the unified rule-based checking infrastructure
+      class LegacyRule < Rule
+        def initialize(config)
+          super(config)
+          @key_callable = @config[:key]
+        end
+
+        # Legacy rules use the concurrency_key value as the label
+        # @param job [ActiveJob::Base] the job instance
+        # @return [String, nil] the evaluated concurrency key
+        def label(job)
+          return job.class.name if @key_callable.blank?
+
+          key_value = @key_callable.respond_to?(:call) ? job.instance_exec(&@key_callable) : @key_callable
+          return if key_value.blank?
+
+          raise TypeError, "Concurrency key must be a String; was a #{key_value.class}" unless VALID_TYPES.any? { |type| key_value.is_a?(type) }
+
+          key_value.to_s
+        end
+
+        # Legacy rules query by the concurrency_key column, not the labels array
+        # @param base_scope [Class] the base GoodJob::Job scope to build on
+        # @return [Proc] a proc that takes a concurrency_key and returns a scoped query
+        def query_scope(base_scope = GoodJob::Job)
+          lambda { |key| base_scope.where(concurrency_key: key) }
+        end
+
+        # Indicates this is a legacy rule
+        # @return [Boolean] always true for legacy rules
+        def legacy?
+          true
+        end
+
+        private
+
+        def validate_config!
+          # Legacy rules require at least one limit or throttle (from parent)
+          # but do NOT require a label since it's derived from the key
+          super
         end
       end
     end
