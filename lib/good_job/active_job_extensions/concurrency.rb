@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require_relative 'concurrency/rule'
+
 module GoodJob
   module ActiveJobExtensions
     module Concurrency
@@ -19,6 +21,7 @@ module GoodJob
         def deserialize(job_data)
           super
           self.good_job_concurrency_key = job_data['good_job_concurrency_key']
+          self.good_job_concurrency_labels = job_data['good_job_concurrency_labels'] || []
         end
       end
 
@@ -26,7 +29,9 @@ module GoodJob
         prepend Prepends
 
         class_attribute :good_job_concurrency_config, instance_accessor: false, default: {}
+        class_attribute :good_job_concurrency_rules, instance_accessor: false, default: []
         attr_writer :good_job_concurrency_key
+        attr_accessor :good_job_concurrency_labels
 
         wait_key = if ActiveJob.gem_version >= Gem::Version.new("7.1.0.a")
                      :polynomially_longer
@@ -50,6 +55,9 @@ module GoodJob
           job.good_job_concurrency_key ||= job._good_job_concurrency_key
           key = job.good_job_concurrency_key
           next if key.blank?
+
+          # Generate concurrency labels once and cache them for future use
+          job.good_job_concurrency_labels ||= job._good_job_concurrency_labels
 
           enqueue_limit = job.class.good_job_concurrency_config[:enqueue_limit]
           enqueue_limit = instance_exec(&enqueue_limit) if enqueue_limit.respond_to?(:call)
@@ -189,6 +197,11 @@ module GoodJob
         def good_job_control_concurrency_with(config)
           self.good_job_concurrency_config = config
         end
+
+        def good_job_concurrency_rule(config)
+          rule = Rule.new(config)
+          self.good_job_concurrency_rules = good_job_concurrency_rules + [rule]
+        end
       end
 
       # Existing or dynamically generated concurrency key
@@ -215,6 +228,14 @@ module GoodJob
       # @return [String] concurrency key
       def _good_job_default_concurrency_key
         self.class.name.to_s
+      end
+
+      # Generates concurrency labels from all configured rules
+      # @return [Array<String>] array of labels for this job instance
+      def _good_job_concurrency_labels
+        self.class.good_job_concurrency_rules.filter_map do |rule|
+          rule.label(self)
+        end
       end
     end
   end
