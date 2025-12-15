@@ -18,6 +18,13 @@ module GoodJob
       ThrottleExceededError = Class.new(ConcurrencyExceededError)
 
       module Prepends
+        def serialize(*)
+          super.tap do |job_data|
+            job_data['good_job_concurrency_key'] = good_job_concurrency_key if good_job_concurrency_key.present?
+            job_data['good_job_concurrency_labels'] = good_job_concurrency_labels if good_job_concurrency_labels.present?
+          end
+        end
+
         def deserialize(job_data)
           super
           self.good_job_concurrency_key = job_data['good_job_concurrency_key']
@@ -54,6 +61,8 @@ module GoodJob
           # Check rules-based concurrency constraints
           unless job.class.good_job_concurrency_rules.empty?
             job.good_job_concurrency_labels ||= job._good_job_concurrency_labels
+            # Also set good_job_labels so Job model can persist labels to database
+            job.good_job_labels = (job.good_job_labels || []) + job.good_job_concurrency_labels
 
             exceeded = job.class.good_job_concurrency_rules.find do |rule|
               rule_exceeded = job._check_enqueue_rule_concurrency(rule)
